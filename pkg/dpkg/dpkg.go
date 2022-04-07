@@ -53,7 +53,7 @@ func LoadInstalledPackages(path string) PackageList {
 			} else if key == "Version" && pkgInstalled {
 				pkgVersion = value
 				if len(items) > 2 {
-					pkgVersion = items[1] + ":" + items[2]
+					pkgVersion = strings.Trim(items[1]+":"+items[2], " ")
 				}
 
 				packages[pkgName] = pkgVersion

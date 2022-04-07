@@ -14,13 +14,17 @@ var displayFormat string
 // syslogd host:port, default: localhost:514
 var syslogHost string
 
+// if we want to see all vulns (HIGH by default)
+var allVulns bool
+
 // initializes arguments for scan command
 func init() {
 	rootCmd.AddCommand(scanCmd)
 
 	scanCmd.Flags().IntVarP(&displayColumns, "line-length", "t", 128, "number of columns displayed on screen")
-	scanCmd.Flags().StringVarP(&displayFormat, "format", "f", "text", "display format")
+	scanCmd.Flags().StringVarP(&displayFormat, "format", "f", "text", "display format text/json/syslog")
 	scanCmd.Flags().StringVarP(&syslogHost, "syslog-host", "s", "localhost:514", "syslogd host:port to stream TCP syslog events")
+	scanCmd.Flags().BoolVarP(&allVulns, "all", "a", false, "show all found vulns")
 }
 
 // scan command
@@ -32,7 +36,7 @@ var scanCmd = &cobra.Command{
 		report := analyze()
 		switch displayFormat {
 		case "text":
-			reporter.GenerateTextReport(report, displayColumns)
+			reporter.GenerateTextReport(report, displayColumns, allVulns)
 			break
 		case "json":
 			reporter.GenerateJSONReport(report)

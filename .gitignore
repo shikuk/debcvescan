@@ -3,7 +3,7 @@ gosec_report.*
 dist
 build/debcvescan
 debcvescan.code-workspace
-#debcvescan
+debcvescan
 debcvelist.json
 pkg/analyzer/debcvescan.whitelist
 data/report.txt

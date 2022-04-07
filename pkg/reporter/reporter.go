@@ -24,16 +24,21 @@ import (
 )
 
 // GenerateTextReport generates a text report
-func GenerateTextReport(report analyzer.VulnerabilityReport, displayColumns int) {
+func GenerateTextReport(report analyzer.VulnerabilityReport, displayColumns int, allVulns bool) {
 	fmt.Printf("Summary Total:%d Open:%d High: %d Medium: %d Low: %d Unknown: %d Ignored: %d \n", report.CountTotal, report.CountOpen, report.CountHigh, report.CountMedium, report.CountLow, report.CountUnknown, report.CountIgnore)
 	for _, vul := range report.Vulnerabilities {
+
+		if !allVulns && vul.Severity != analyzer.LOW {
+			continue
+		}
 
 		maxLen := len(vul.Description)
 		if displayColumns < maxLen {
 			maxLen = displayColumns
 		}
 
-		fmt.Printf("%-12s %-6s %s: %s \n", vul.PackageName, vul.Severity, vul.CVE, vul.Description[:maxLen])
+		// fmt.Printf("%-12s %-6s %s: %s \n", vul.PackageName, vul.Severity, vul.CVE, vul.Description[:maxLen])
+		fmt.Printf("%-16s %-32s %-6s %s   %s\n", vul.PackageName, vul.InstalledVersion, vul.Severity, vul.CVE, vul.FixedVersion)
 	}
 }
 
