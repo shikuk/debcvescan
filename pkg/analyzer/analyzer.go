@@ -21,6 +21,9 @@ import (
 	"net/http"
 	"os"
 	"strings"
+    "fmt"
+	"log"
+	"strconv"
 
 	"github.com/devmatic-it/debcvescan/pkg/dpkg"
 )
@@ -53,6 +56,7 @@ func (serverity Severity) String() string {
 
 type jsonData map[string]map[string]jsonVulnerability
 
+// debian-security json
 type jsonVulnerability struct {
 	Description string                 `json:"description"`
 	Releases    map[string]jsonRelease `json:"releases"`
@@ -62,6 +66,40 @@ type jsonRelease struct {
 	FixedVersion string `json:"fixed_version"`
 	Status       string `json:"status"`
 	Urgency      string `json:"urgency"`
+}
+
+// We want this
+type cveSeverites struct {
+    cveName     string
+	cveSeverity string
+}
+
+// Nvd is a struct of NVD JSON
+// https://scap.nist.gov/schema/nvd/feed/1.1/nvd_cve_feed_json_1.1.schema
+// Structs from https://github.com/vulsio/go-cve-dictionary/blob/master/fetcher/nvd/nvd.go
+type Nvd struct {
+	CveItems    []CveItem `json:"CVE_Items"`
+}
+
+// CveItem is a struct of Nvd>CveItems
+type CveItem struct {
+	Cve struct {
+		CveDataMeta struct {
+			ID       string `json:"ID"`
+			ASSIGNER string `json:"ASSIGNER"`
+		} `json:"CVE_data_meta"`
+		Description struct {
+			DescriptionData []struct {
+				Lang  string `json:"lang"`
+				Value string `json:"value"`
+			} `json:"description_data"`
+		} `json:"description"`
+	} `json:"cve"`
+	Impact struct {
+		BaseMetricV2 struct {
+			Severity                string  `json:"severity"`
+		} `json:"baseMetricV2"`
+	} `json:"impact"`
 }
 
 type jsonUbuntuData map[string]map[string]jsonUbuntuVulnerability
@@ -78,13 +116,13 @@ type jsonUbuntuRelease struct {
 func severityFromUrgency(urgency string) Severity {
 	switch urgency {
 
-	case "low", "low*", "low**":
+	case "low", "low*", "low**", "LOW":
 		return LOW
 
-	case "medium", "medium*", "medium**":
+	case "medium", "medium*", "medium**", "MEDIUM":
 		return MEDIUM
 
-	case "high", "high*", "high**":
+	case "high", "high*", "high**", "HIGH":
 		return HIGH
 
 	case "not yet assigned":
@@ -101,7 +139,29 @@ func severityFromUrgency(urgency string) Severity {
 // ScanPackages scans the given list of debian packages for vulnerabilties
 func ScanPackages(installedPackages dpkg.PackageList) VulnerabilityReport {
 
+	var nvdData Nvd
+	// var severityForID []*cveSeverites
+	severityForID := make( map[string]string )
+
+	for year:= 2016; year < 2023; year++ {
+
+		jsonfile, err := os.Open("./nvdcve-1.1-" + strconv.Itoa(year) + ".json")
+		if err != nil {
+			log.Fatal(err)
+		}
+		err2 := json.NewDecoder(jsonfile).Decode(&nvdData)
+		if err2 != nil {
+			panic(err)
+		}
+
+		for _, item := range nvdData.CveItems {
+				// fmt.Println (item.Cve.CveDataMeta.ID, item.Impact.BaseMetricV2.Severity)
+				severityForID[item.Cve.CveDataMeta.ID] = item.Impact.BaseMetricV2.Severity
+		}
+	}
+
 	cvejson, err := os.Open("./debcvelist.json")
+
 	var report VulnerabilityReport
 	if err != nil {
 
@@ -116,9 +176,9 @@ func ScanPackages(installedPackages dpkg.PackageList) VulnerabilityReport {
 			panic(err)
 		}
 
-		report = scanPackagesFromReader(resp.Body, installedPackages)
+		report = scanPackagesFromReader(resp.Body, installedPackages, severityForID)
 	} else {
-		report = scanPackagesFromReader(cvejson, installedPackages)
+		report = scanPackagesFromReader(cvejson, installedPackages, severityForID)
 	}
 
 	debianId, _, codename := GetOSInfo()
@@ -173,7 +233,7 @@ func ubuntuBackports(vulnerabilites *VulnerabilityReport, codename string) Vulne
 }
 
 // scans for vulnerabilities in given packages
-func scanPackagesFromReader(source io.Reader, installedPackages dpkg.PackageList) VulnerabilityReport {
+func scanPackagesFromReader(source io.Reader, installedPackages dpkg.PackageList, severityForID map[string]string) VulnerabilityReport {
 	report := NewVulnerabilityReport()
 
 	var data jsonData
@@ -196,15 +256,28 @@ func scanPackagesFromReader(source io.Reader, installedPackages dpkg.PackageList
 						}
 
 						_, exists := cveNames[vulnName]
+						// Here we can rework to show no fixed, but bullseye have
 						if !exists && dpkg.IsAffectedVersion(pkgInstalledVersion, releaseNode.FixedVersion) {
 							cveNames[vulnName] = pkgName
 							severity := severityFromUrgency(releaseNode.Urgency)
+
 							if releaseNode.Status == "Open" {
 								severity = OPEN
 							}
 
+							// fmt.Println("Key:", vulnName, "Value:", severityForID[vulnName])
+							if severityForID[vulnName] != "" {
+								severity = severityFromUrgency(severityForID[vulnName])
+							}
+
+
 							if !whitelist.HasCVE(vulnName) {
 								report.AddVulnerability(Vulnerability{severity, vulnName, vulnNode.Description, pkgName, pkgInstalledVersion, releaseNode.FixedVersion})
+							}
+						} else {
+							if severityForID[vulnName] == "HIGH" {
+								fmt.Printf("%-16s %-32s %-6s %s \n", pkgName, pkgInstalledVersion, severityForID[vulnName], vulnName)
+								// fmt.Println("Key:", vulnName, "Value:", severityForID[vulnName])
 							}
 						}
 
