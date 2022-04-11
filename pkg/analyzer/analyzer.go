@@ -23,7 +23,6 @@ import (
 	"strings"
     "fmt"
 	"log"
-	"strconv"
 
 	"github.com/devmatic-it/debcvescan/pkg/dpkg"
 )
@@ -68,40 +67,6 @@ type jsonRelease struct {
 	Urgency      string `json:"urgency"`
 }
 
-// We want this
-type cveSeverites struct {
-    cveName     string
-	cveSeverity string
-}
-
-// Nvd is a struct of NVD JSON
-// https://scap.nist.gov/schema/nvd/feed/1.1/nvd_cve_feed_json_1.1.schema
-// Structs from https://github.com/vulsio/go-cve-dictionary/blob/master/fetcher/nvd/nvd.go
-type Nvd struct {
-	CveItems    []CveItem `json:"CVE_Items"`
-}
-
-// CveItem is a struct of Nvd>CveItems
-type CveItem struct {
-	Cve struct {
-		CveDataMeta struct {
-			ID       string `json:"ID"`
-			ASSIGNER string `json:"ASSIGNER"`
-		} `json:"CVE_data_meta"`
-		Description struct {
-			DescriptionData []struct {
-				Lang  string `json:"lang"`
-				Value string `json:"value"`
-			} `json:"description_data"`
-		} `json:"description"`
-	} `json:"cve"`
-	Impact struct {
-		BaseMetricV2 struct {
-			Severity                string  `json:"severity"`
-		} `json:"baseMetricV2"`
-	} `json:"impact"`
-}
-
 type jsonUbuntuData map[string]map[string]jsonUbuntuVulnerability
 
 type jsonUbuntuVulnerability struct {
@@ -139,25 +104,17 @@ func severityFromUrgency(urgency string) Severity {
 // ScanPackages scans the given list of debian packages for vulnerabilties
 func ScanPackages(installedPackages dpkg.PackageList) VulnerabilityReport {
 
-	var nvdData Nvd
 	// var severityForID []*cveSeverites
 	severityForID := make( map[string]string )
 
-	for year:= 2016; year < 2023; year++ {
+	jsonfile, err := os.Open("./debcveseverity.json")
+	if err != nil {
+		log.Fatal(err)
+	}
 
-		jsonfile, err := os.Open("./nvdcve-1.1-" + strconv.Itoa(year) + ".json")
-		if err != nil {
-			log.Fatal(err)
-		}
-		err2 := json.NewDecoder(jsonfile).Decode(&nvdData)
-		if err2 != nil {
-			panic(err)
-		}
-
-		for _, item := range nvdData.CveItems {
-				// fmt.Println (item.Cve.CveDataMeta.ID, item.Impact.BaseMetricV2.Severity)
-				severityForID[item.Cve.CveDataMeta.ID] = item.Impact.BaseMetricV2.Severity
-		}
+	err = json.NewDecoder(jsonfile).Decode(&severityForID)
+	if err != nil {
+		panic(err)
 	}
 
 	cvejson, err := os.Open("./debcvelist.json")
@@ -246,9 +203,13 @@ func scanPackagesFromReader(source io.Reader, installedPackages dpkg.PackageList
 	report.CountTotal = 0
 	cveNames := make(map[string]string)
 	for pkgName, pkgNode := range data {
-		if !whitelist.HasPackage(pkgName) {
+		// if !whitelist.HasPackage(pkgName) {
+			if strings.HasPrefix(pkgName, "strongswan") {
+     		fmt.Printf("Got %-16s \n", pkgName)
 			pkgInstalledVersion, pkgExists := installedPackages[pkgName]
 			if pkgExists {
+				fmt.Printf("Exists %-16s \n", pkgInstalledVersion)
+
 				for vulnName, vulnNode := range pkgNode {
 					for _, releaseNode := range vulnNode.Releases {
 						if !strings.HasPrefix(vulnName, "CVE-") || releaseNode.Status == "undetermined" {

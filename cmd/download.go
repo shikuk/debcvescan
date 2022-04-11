@@ -6,10 +6,10 @@ import (
 	"os"
     "archive/zip"
     "bytes"
-    "fmt"
     "io/ioutil"
     "log"
 	"strconv"
+	"encoding/json"
 
 	"github.com/spf13/cobra"
 )
@@ -19,6 +19,13 @@ func init() {
 	rootCmd.AddCommand(downloadCmd)
 
 }
+
+type cveSeverites map[string]string
+
+// We want this
+// type cveSeverity struct {
+// 	Severity string
+// }
 
 // Nvd is a struct of NVD JSON
 // https://scap.nist.gov/schema/nvd/feed/1.1/nvd_cve_feed_json_1.1.schema
@@ -63,6 +70,9 @@ var downloadCmd = &cobra.Command{
 	Long:  `Download cve json file.`,
 	Args:  cobra.ExactArgs(0),
 	Run: func(cmd *cobra.Command, args []string) {
+		// var data jsonData
+		outSeverites := make(map[string]string)
+
 		client := &http.Client{}
 		req, err := http.NewRequest("GET", "https://security-tracker.debian.org/tracker/data/json", nil)
 		if err != nil {
@@ -87,7 +97,8 @@ var downloadCmd = &cobra.Command{
 		}
 
         // Get NVD lists because they have severity marks
-		for year:= 2016; year < 2023; year++ {
+		for year:= 2022; year < 2023; year++ {
+			var nvdData Nvd
 
 			resp, err := http.Get("https://nvd.nist.gov/feeds/json/cve/1.1/nvdcve-1.1-" + strconv.Itoa(year) + ".json.zip")
 			if err != nil {
@@ -107,18 +118,37 @@ var downloadCmd = &cobra.Command{
 		
 			// Read all the files from zip archive
 			for _, zipFile := range zipReader.File {
-				fmt.Println("Reading file from zip:", zipFile.Name)
 				unzippedFileBytes, err := readZipFile(zipFile)
 				if err != nil {
 					log.Println(err)
 					continue
+				} else {
+					log.Println("Succesfully readed file from zip:", zipFile.Name)
 				}
 
+				err2 := json.Unmarshal(unzippedFileBytes, &nvdData)
+				if err2 != nil {
+					panic(err)
+				}
+
+				for _, item := range nvdData.CveItems {
+     				outSeverites[item.Cve.CveDataMeta.ID] = item.Impact.BaseMetricV2.Severity
+				}
+
+				// Just to check
 				err = os.WriteFile("nvdcve-1.1-" + strconv.Itoa(year) + ".json", unzippedFileBytes, 0600)
 				if err != nil {
 					panic(err)
 				}				
 			}
 		}
+
+		file, _ := json.MarshalIndent(outSeverites, "", " ")
+
+		err = os.WriteFile("./debcveseverity.json", file, 0600)
+		if err != nil {
+			panic(err)
+		}
+
 	},
 }
